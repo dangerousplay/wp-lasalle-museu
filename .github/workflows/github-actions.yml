@@ -2,6 +2,7 @@ name: GitHub Actions Demo
 on: [push]
 jobs:
   build-and-deploy:
+    environment: Development
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,4 +29,4 @@ jobs:
         run: npm install && npm run build
 
       - name: "Deploy plugin to server"
-        run: sshpass -p "${SSH_KEY_PASSWORD}" rsync -avzr --delete-before --exclude "node_modules" --exclude ".git" --exclude ".github" .  root@access.lasalle-museu.ga:/var/www/html/wp-content/plugins/wp-lasalle-museu
+        run: sshpass -p "${{ secrets.SSH_KEY_PASSWORD }}" rsync -avzr -e "ssh -o StrictHostKeyChecking=no" --delete-before --exclude "node_modules" --exclude ".git" --exclude ".github" .  root@access.lasalle-museu.ga:/var/www/html/wp-content/plugins/wp-lasalle-museu
