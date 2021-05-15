@@ -1,0 +1,32 @@
+name: GitHub Actions Demo
+on: [push]
+jobs:
+  build-and-deploy:
+    environment: Development
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: mbstring, intl
+          ini-values: post_max_size=256M, max_execution_time=180
+          coverage: xdebug
+          tools: php-cs-fixer, phpunit
+
+      - name: "Composer install dependencies"
+        run: composer install
+
+      - name: Use Node.js 12.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12.x
+
+      - name: "NPM install dependencies"
+        run: npm install && npm run build
+
+      - name: "Deploy plugin to server"
+        run: sshpass -p "${{ secrets.SSH_KEY_PASSWORD }}" rsync -avzr -e "ssh -o StrictHostKeyChecking=no" --delete-before --exclude "node_modules" --exclude ".git" --exclude ".github" .  root@access.lasalle-museu.ga:/var/www/html/wp-content/plugins/wp-lasalle-museu
