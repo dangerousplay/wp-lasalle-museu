@@ -25,7 +25,7 @@ jobs:
           node-version: 12.x
 
       - name: "NPM install dependencies"
-        run: npm install
+        run: npm install && npm run build
 
       - name: "Deploy plugin to server"
         run: sshpass -p "${SSH_KEY_PASSWORD}" rsync -avzr --delete-before --exclude "node_modules" --exclude ".git" --exclude ".github" .  root@access.lasalle-museu.ga:/var/www/html/wp-content/plugins/wp-lasalle-museu
