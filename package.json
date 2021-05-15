@@ -1,0 +1,11 @@
+{
+  "name": "wp-lasalle-museu",
+  "version": "1.0.0",
+  "description": "Tainacan plugin for Lasalle museu",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
