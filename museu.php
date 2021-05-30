@@ -9,7 +9,7 @@ Text Domain: tainacan-lasalle
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 */
-namespace TainacanLasalle;
+namespace Lasalle\Tainacan;
 
 class Plugin {
 
@@ -26,11 +26,11 @@ class Plugin {
             'name' => 'Documento Word',
             'description' => __('Import items from a DOCX document', 'tainacan'),
             'slug' => 'docx_importer',
-            'class_name' => '\TainacanLasalle\Docx_importer',
+            'class_name' => '\Lasalle\Tainacan\Docx_Importer',
             'manual_collection' => true,
-            'manual_mapping' => false,
+            'manual_mapping' => true,
         ]);
     }
 }
 
-$TainacanLasalle = new \TainacanLasalle\Plugin();
+$TainacanLasalle = new \Lasalle\Tainacan\Plugin();
