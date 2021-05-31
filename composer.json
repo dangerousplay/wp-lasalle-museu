@@ -2,5 +2,7 @@
     "name": "lasalle/wp-museu",
     "description": "Tainacan Plugin for LaSalle Museu",
     "type": "project",
-    "require": {}
+    "require": {
+        "phpoffice/phpword": "^0.18.1"
+    }
 }
