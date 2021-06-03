@@ -1013,23 +1013,42 @@ class Docx_Importer extends Importer
 
     private static function read_docx($filename)
     {
+        $striped_content = '';
         $content = '';
-        //print($filename);
-        $zip = zip_open($filename);
-        if (!$zip || is_numeric($zip)) return false;
-        while ($zip_entry = zip_read($zip)) {
-            if (zip_entry_open($zip, $zip_entry) == FALSE) continue;
-            if (zip_entry_name($zip_entry) != "word/document.xml") continue;
-            $content .= zip_entry_read($zip_entry, zip_entry_filesize($zip_entry));
-            zip_entry_close($zip_entry);
+        $zip = new ZipArchive;
+        if (true === $zip->open($filename)) {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $zip_element = $zip->statIndex($i);
+                if ($zip_element['name'] != "word/document.xml") {
+                    continue;
+                }
+                $content .= $zip->getFromIndex($i);
+            }
+            $zip->close();
         }
-        zip_close($zip);
         $content = str_replace('</w:r></w:p></w:tc><w:tc>', "\n", $content);
         $content = str_replace('</w:r></w:p>', "\n", $content);
         $content = str_replace('</w:rPr></w:pPr>', "\n", $content);
         $striped_content = strip_tags($content);
-        //print($striped_content);
         return $striped_content;
+    }
+
+    private static function read_image($filename)
+    {
+        $current_image = '';
+        $current_image_size = 0;
+        $zip = new ZipArchive;
+        if (true === $zip->open($filename)) {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $zip_element = $zip->statIndex($i);
+                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $zip_element['name']) && $zip_element['size'] > $current_image_size) {
+                    $current_image = $zip->getFromIndex($i);
+                    $current_image_size = $zip_element['size'];
+                }
+            }
+        }
+    
+        return $current_image;
     }
 
     private static function process_document($file): array
@@ -1071,11 +1090,6 @@ class Docx_Importer extends Importer
                 }
 
                 if (in_array($trimmed_header, self::$ignore_headers)) {
-                    continue;
-                }
-
-                if ($trimmed_header == 'FORMA DE AQUISIÇÃO') {
-                    $is_parsing_table = true;
                     continue;
                 }
 
