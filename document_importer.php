@@ -15,6 +15,7 @@ use Tainacan\Repositories\Items;
 use Tainacan\Repositories\Metadata;
 use Tainacan\Repositories\Terms;
 use WP_Query;
+use ZipArchive;
 
 
 if (!function_exists('str_putcsv')) {
