@@ -944,6 +944,9 @@ class Docx_Importer extends Importer
         if (parent::add_file($file)) {
             $properties = self::process_document($this->tmp_file);
 
+            $attachment = $properties["attachment"];
+            unset($properties["attachment"]);
+
             $properties["Título"] = $properties["Dados técnicos"]["Título"];
 
             $headers = [];
@@ -952,9 +955,23 @@ class Docx_Importer extends Importer
                 $headers += is_array($value) ? [$key => $this->compound_header($key, $value)] : [$key => "$key|text"];
             }
 
+            // $attachment_url = $this->upload_attachment($attachment);
+            // $headers += ['special_attachments'];
+            // $properties['special_attachments'] = "file:http://localhost/wordpress/wp-content/uploads/2021/06/teste.png";
+
             return $this->document_to_csv($properties, $headers, $this->tmp_file);
         }
         return false;
+    }
+
+    private function upload_attachment($attachment)
+    {
+        $att_id = media_handle_sideload(array(
+            'name' => 'teste.jpg',
+            'tmp_name' => $attachment
+        ), '0');
+
+        return wp_get_attachment_url($att_id);
     }
 
     private function sanitize_header($header_name)
@@ -1014,12 +1031,18 @@ class Docx_Importer extends Importer
 
     private static function read_docx($filename)
     {
-        $striped_content = '';
+        $current_image = '';
+        $current_image_size = 0;
         $content = '';
         $zip = new ZipArchive;
         if (true === $zip->open($filename)) {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $zip_element = $zip->statIndex($i);
+                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $zip_element['name']) && $zip_element['size'] > $current_image_size) {
+                    $current_image = $zip->getFromIndex($i);
+                    $current_image_size = $zip_element['size'];
+                    continue;
+                }
                 if ($zip_element['name'] != "word/document.xml") {
                     continue;
                 }
@@ -1030,32 +1053,17 @@ class Docx_Importer extends Importer
         $content = str_replace('</w:r></w:p></w:tc><w:tc>', "\n", $content);
         $content = str_replace('</w:r></w:p>', "\n", $content);
         $content = str_replace('</w:rPr></w:pPr>', "\n", $content);
-        $striped_content = strip_tags($content);
-        return $striped_content;
-    }
 
-    private static function read_image($filename)
-    {
-        $current_image = '';
-        $current_image_size = 0;
-        $zip = new ZipArchive;
-        if (true === $zip->open($filename)) {
-            for ($i = 0; $i < $zip->numFiles; $i++) {
-                $zip_element = $zip->statIndex($i);
-                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $zip_element['name']) && $zip_element['size'] > $current_image_size) {
-                    $current_image = $zip->getFromIndex($i);
-                    $current_image_size = $zip_element['size'];
-                }
-            }
-        }
-    
-        return $current_image;
+        return array(
+            "text" => strip_tags($content),
+            "image" => $current_image
+        );
     }
 
     private static function process_document($file): array
     {
-        $text = self::read_docx($file);
-        $exploded_text = explode("\n", $text);
+        $document_data = self::read_docx($file);
+        $exploded_text = explode("\n", $document_data['text']);
 
         $properties = array();
         $is_parsing_table = false;
@@ -1115,6 +1123,13 @@ class Docx_Importer extends Importer
                 }
             }
         }
+
+        // $tmp_image = fopen('php://temp', 'w');
+        // $tmp_image_filename = stream_get_meta_data($tmp_image)["uri"];
+        // fwrite($tmp_image, $document_data["image"]);
+        // fclose($tmp_image);
+
+        // $properties["attachment"] = $tmp_image_filename;
 
         return $properties;
     }
