@@ -53,15 +53,32 @@ class Docx_Importer extends Importer
         'Peso'
     ];
 
+    private $items_repo;
+
     public function __construct($attributes = array())
     {
         parent::__construct($attributes);
+        $this->items_repo = Items::get_instance();
         $this->set_default_options([
             'delimiter' => ',',
             'multivalued_delimiter' => '||',
             'encode' => 'utf8',
             'enclosure' => '"'
         ]);
+    }
+
+    private static function create_image_file(array $image): string
+    {
+        $extension = explode(".", $image['name'])[1];
+
+        $tmp_image_filename = tempnam("/tmp", "IMP") . "." . $extension;
+
+        $tmp_image = fopen($tmp_image_filename, 'w');
+
+        fwrite($tmp_image, $image['data']);
+        fclose($tmp_image);
+
+        return $tmp_image_filename;
     }
 
     /**
@@ -944,6 +961,9 @@ class Docx_Importer extends Importer
         if (parent::add_file($file)) {
             $properties = self::process_document($this->tmp_file);
 
+            $attachment = $properties["attachment"];
+            unset($properties["attachment"]);
+
             $properties["Título"] = $properties["Dados técnicos"]["Título"];
 
             $headers = [];
@@ -951,6 +971,9 @@ class Docx_Importer extends Importer
             foreach ($properties as $key => $value) {
                 $headers += is_array($value) ? [$key => $this->compound_header($key, $value)] : [$key => "$key|text"];
             }
+
+             $headers += ['special_document'];
+             $properties['special_document'] = "file:$attachment";
 
             return $this->document_to_csv($properties, $headers, $this->tmp_file);
         }
@@ -1014,13 +1037,24 @@ class Docx_Importer extends Importer
 
     private static function read_docx($filename)
     {
-        $striped_content = '';
+        $current_image = '';
+        $current_image_name = '';
+        $current_image_size = 0;
         $content = '';
         $zip = new ZipArchive;
         if (true === $zip->open($filename)) {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $zip_element = $zip->statIndex($i);
-                if ($zip_element['name'] != "word/document.xml") {
+                $name = $zip_element['name'];
+                $size = $zip_element['size'];
+
+                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $name) && $size > $current_image_size) {
+                    $current_image = $zip->getFromIndex($i);
+                    $current_image_name = $name;
+                    $current_image_size = $zip_element['size'];
+                    continue;
+                }
+                if ($name != "word/document.xml") {
                     continue;
                 }
                 $content .= $zip->getFromIndex($i);
@@ -1030,32 +1064,20 @@ class Docx_Importer extends Importer
         $content = str_replace('</w:r></w:p></w:tc><w:tc>', "\n", $content);
         $content = str_replace('</w:r></w:p>', "\n", $content);
         $content = str_replace('</w:rPr></w:pPr>', "\n", $content);
-        $striped_content = strip_tags($content);
-        return $striped_content;
-    }
 
-    private static function read_image($filename)
-    {
-        $current_image = '';
-        $current_image_size = 0;
-        $zip = new ZipArchive;
-        if (true === $zip->open($filename)) {
-            for ($i = 0; $i < $zip->numFiles; $i++) {
-                $zip_element = $zip->statIndex($i);
-                if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $zip_element['name']) && $zip_element['size'] > $current_image_size) {
-                    $current_image = $zip->getFromIndex($i);
-                    $current_image_size = $zip_element['size'];
-                }
-            }
-        }
-    
-        return $current_image;
+        return array(
+            "text" => strip_tags($content),
+            "image" => [
+                'data' => $current_image,
+                'name' => $current_image_name
+            ]
+        );
     }
 
     private static function process_document($file): array
     {
-        $text = self::read_docx($file);
-        $exploded_text = explode("\n", $text);
+        $document_data = self::read_docx($file);
+        $exploded_text = explode("\n", $document_data['text']);
 
         $properties = array();
         $is_parsing_table = false;
@@ -1115,6 +1137,10 @@ class Docx_Importer extends Importer
                 }
             }
         }
+
+        $tmp_image_filename = self::create_image_file($document_data["image"]);
+
+        $properties["attachment"] = $tmp_image_filename;
 
         return $properties;
     }
