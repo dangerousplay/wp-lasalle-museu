@@ -39,10 +39,11 @@ class Docx_Importer extends Importer
         'DIMENSÕES',
         'FORMA DE AQUISIÇÃO',
         'ESTADO DE CONSERVAÇÃO',
-        'DADOS HISTÓRICOS'
+        'DADOS HISTÓRICOS',
+        'PARECER'
     ];
-    private static $ignore_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
 
+    private static $ignore_table_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
     private static $valid_table_headers = [
         'Comprimento',
         'Espessura',
@@ -53,8 +54,9 @@ class Docx_Importer extends Importer
         'Peso'
     ];
 
-    private static $PRIVATE_SUFFIX = "- PRIVADO";
+    private static $ignore_location_headers = ['Localização', 'Saída', 'Retornar', 'Responsável'];
 
+    private static $PRIVATE_SUFFIX = "- PRIVADO";
 
     private static $METADATUM_MAPPING = [
         'Registro de acervo'    => [
@@ -64,15 +66,15 @@ class Docx_Importer extends Importer
             'Localização no Museu'               => [ 'type' => 'text', 'private' => true ]
         ],
         'Dados técnicos'                         => [
-            'Data da confecção do material'      => [ 'type' => 'date', 'private' => false],
-            'Autor/Autoridade'                   => [ 'type' => 'text', 'private' => true],
-            'Descrição intrínseca'               => [ 'type' => 'text', 'private' => true],
-            'Matéria Prima'                      => [ 'type' => 'text', 'private' => true],
-            'Inscrição/ Marcas/ Títulos'         => [ 'type' => 'text', 'private' => true],
-            'Técnica de manufatura'              => [ 'type' => 'text', 'private' => true],
-            'Técnica decorativa'                 => [ 'type' => 'text', 'private' => true],
-            'Representação/ Decoração'           => [ 'type' => 'text', 'private' => true],
-            'Observações/Outras Características' => [ 'type' => 'textarea', 'private' => true]
+            'Data da confecção do material'      => [ 'type' => 'date', 'private' => false ],
+            'Autor/Autoridade'                   => [ 'type' => 'text', 'private' => true ],
+            'Descrição intrínseca'               => [ 'type' => 'text', 'private' => true ],
+            'Matéria Prima'                      => [ 'type' => 'text', 'private' => true ],
+            'Inscrição/ Marcas/ Títulos'         => [ 'type' => 'text', 'private' => true ],
+            'Técnica de manufatura'              => [ 'type' => 'text', 'private' => true ],
+            'Técnica decorativa'                 => [ 'type' => 'text', 'private' => true ],
+            'Representação/ Decoração'           => [ 'type' => 'text', 'private' => true ],
+            'Observações/Outras Características' => [ 'type' => 'textarea', 'private' => true ]
         ],
         'Procedência' => [
             'Município'                          => [ 'type' => 'text', 'private' => true ],
@@ -93,9 +95,17 @@ class Docx_Importer extends Importer
             'Descrição'                          => [ 'type' => 'textarea', 'private' => true ]
         ],
         'Dados históricos' => [
-            'Histórico'                          => [ 'type' => 'textarea', 'private' => false ],
+            'Histórico'                          => [ 'type' => 'textarea', 'private' => false ]
+        ],
+        'Parecer' => [
+            'Localização'                        => [ 'type' => 'text', 'private' => true ],
+            'Saída'                              => [ 'type' => 'text', 'private' => true ],
+            'Retornar'                           => [ 'type' => 'text', 'private' => true ],
+            'Responsável'                        => [ 'type' => 'text', 'private' => true ],
+        ],
+        'Outros' => [
             'Referências Bibliográficas/ Fontes' => [ 'type' => 'text', 'private' => true ],
-            'Repetidos/ Duplos'                  => [ 'type' => 'text', 'private' => true ],
+            'Repetidos/ Duplos'                  => [ 'type' => 'text', 'private' => true ]
         ]
     ];
 
@@ -1194,7 +1204,11 @@ class Docx_Importer extends Importer
 
         $properties = array();
         $is_parsing_table = false;
+        $is_parsing_locations = false;
+
         $lines_to_skip = 0;
+        $location_header_line = 0;
+
         $current_section_header = 'REGISTRO DE ACERVO';
         foreach ($exploded_text as $line) {
             $exploded_line = explode(":", $line);
@@ -1209,7 +1223,7 @@ class Docx_Importer extends Importer
                 $current_section_header = ucfirst(mb_strtolower($trimmed_header));
             }
 
-            if (!$is_parsing_table) {
+            if (!$is_parsing_table && !$is_parsing_locations) {
                 if (count($exploded_line) >= 2) {
                     $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
                     continue;
@@ -1219,19 +1233,27 @@ class Docx_Importer extends Importer
                     $is_parsing_table = true;
                     continue;
                 }
-            } else {
+        
+                if ($trimmed_header == 'PARECER') {
+                    $is_parsing_locations = true;
+                    $properties[$current_section_header] = array();
+                    continue;
+                }
+            }
+            
+            if ($is_parsing_table) {
                 if ($trimmed_header == 'FORMA DE AQUISIÇÃO') {
                     $is_parsing_table = false;
                     continue;
                 }
 
-                if (in_array($trimmed_header, self::$ignore_headers)) {
+                if (in_array($trimmed_header, self::$ignore_table_headers)) {
                     continue;
                 }
 
                 if (in_array($trimmed_header, self::$valid_table_headers)) {
                     $current_table_header = $trimmed_header;
-                    $lines_to_skip = 2;
+                    $lines_to_skip = 3;
                     continue;
                 }
 
@@ -1241,13 +1263,43 @@ class Docx_Importer extends Importer
 
                 if (!isset($properties[$current_section_header][$current_table_header]['menor'])) {
                     $properties[$current_section_header][$current_table_header]['menor'] = trim($line);
+                    $lines_to_skip = 1;
                     continue;
                 }
-
+        
                 if (!isset($properties[$current_section_header][$current_table_header]['maior'])) {
                     $properties[$current_section_header][$current_table_header]['maior'] = trim($line);
                     continue;
                 }
+            }
+        
+            if ($is_parsing_locations) {
+                if ($trimmed_header == 'Referências Bibliográficas/ Fontes') {
+                    $current_section_header = 'Outros';
+                    $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    $is_parsing_locations = false;
+                    continue;
+                }
+        
+                if (in_array($trimmed_header, self::$ignore_location_headers) || ($location_header_line == 0 && $trimmed_header == '')) {
+                    continue;
+                }
+        
+                if ($location_header_line == 0) {
+                    array_push($properties[$current_section_header], array(
+                        self::$ignore_location_headers[$location_header_line] => $trimmed_header
+                    ));
+                } else {
+                    $properties[$current_section_header][count($properties[$current_section_header]) - 1][self::$ignore_location_headers[$location_header_line]] = $trimmed_header;
+                }
+                $lines_to_skip = 1;
+        
+                if ($location_header_line == 3) {
+                    $location_header_line = 0;
+                    continue;
+                }
+        
+                $location_header_line++;
             }
         }
 
