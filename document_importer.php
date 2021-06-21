@@ -53,6 +53,52 @@ class Docx_Importer extends Importer
         'Peso'
     ];
 
+    private static $PRIVATE_SUFFIX = "- PRIVADO";
+
+
+    private static $METADATUM_MAPPING = [
+        'Registro de acervo'    => [
+            'Nª do livro Tombo'                  => [ 'type' => 'text', 'private' => true ],
+            'Nª de Registro'                     => [ 'type' => 'text', 'private' => true ],
+            'Outros Números'                     => [ 'type' => 'text', 'private' => true ],
+            'Localização no Museu'               => [ 'type' => 'text', 'private' => true ]
+        ],
+        'Dados técnicos'                         => [
+            'Data da confecção do material'      => [ 'type' => 'date', 'private' => false],
+            'Autor/Autoridade'                   => [ 'type' => 'text', 'private' => true],
+            'Descrição intrínseca'               => [ 'type' => 'text', 'private' => true],
+            'Matéria Prima'                      => [ 'type' => 'text', 'private' => true],
+            'Inscrição/ Marcas/ Títulos'         => [ 'type' => 'text', 'private' => true],
+            'Técnica de manufatura'              => [ 'type' => 'text', 'private' => true],
+            'Técnica decorativa'                 => [ 'type' => 'text', 'private' => true],
+            'Representação/ Decoração'           => [ 'type' => 'text', 'private' => true],
+            'Observações/Outras Características' => [ 'type' => 'textarea', 'private' => true]
+        ],
+        'Procedência' => [
+            'Município'                          => [ 'type' => 'text', 'private' => true ],
+            'Sítio'                              => [ 'type' => 'text', 'private' => true ],
+            'Localidade'                         => [ 'type' => 'text', 'private' => true ],
+            'Estado'                             => [ 'type' => 'text', 'private' => true ],
+            'Região'                             => [ 'type' => 'text', 'private' => true ],
+            'Proprietário'                       => [ 'type' => 'text', 'private' => true ],
+        ],
+        'Forma de aquisição' => [
+            'Data da Aquisição'                  => [ 'type' => 'date', 'private' => true ],
+            'Doador'                             => [ 'type' => 'text', 'private' => true ],
+            'Último Proprietário'                => [ 'type' => 'text', 'private' => true ],
+            'Personalidade/ Pessoa'              => [ 'type' => 'text', 'private' => true ],
+            'Outras Informações'                 => [ 'type' => 'textarea', 'private' => true ],
+        ],
+        'Estado de conservação' => [
+            'Descrição'                          => [ 'type' => 'textarea', 'private' => true ]
+        ],
+        'Dados históricos' => [
+            'Histórico'                          => [ 'type' => 'textarea', 'private' => false ],
+            'Referências Bibliográficas/ Fontes' => [ 'type' => 'text', 'private' => true ],
+            'Repetidos/ Duplos'                  => [ 'type' => 'text', 'private' => true ],
+        ]
+    ];
+
     private $items_repo;
 
     public function __construct($attributes = array())
@@ -964,36 +1010,103 @@ class Docx_Importer extends Importer
             $attachment = $properties["attachment"];
             unset($properties["attachment"]);
 
-            $properties["Título"] = $properties["Dados técnicos"]["Título"];
-
             $headers = [];
 
-            foreach ($properties as $key => $value) {
-                $headers += is_array($value) ? [$key => $this->compound_header($key, $value)] : [$key => "$key|text"];
+            $processed_properties = self::split_properties_private($properties);
+
+            $processed_properties["Título"] = $properties["Dados técnicos"]["Título"];
+
+            foreach ($processed_properties as $key => $value) {
+                $is_private = strpos($key, self::$PRIVATE_SUFFIX) !== false;
+                $mapping = array_key_exists($key, self::$METADATUM_MAPPING) ? self::$METADATUM_MAPPING[$key] : null;
+                $type = $mapping != null && array_key_exists('type', $mapping) ? $mapping['type'] : "text";
+
+                $headers += self::is_array_associative($value) ? [$key => $this->compound_header($key, $value, !$is_private)] : [$key => "$key|" . $type];
             }
 
-             $headers += ['special_document'];
-             $properties['special_document'] = "file:$attachment";
+            $headers += ['special_document'];
+            $processed_properties['special_document'] = "file:$attachment";
 
-            return $this->document_to_csv($properties, $headers, $this->tmp_file);
+            return $this->document_to_csv($processed_properties, $headers, $this->tmp_file);
         }
         return false;
     }
 
-    private function sanitize_header($header_name)
+    private static function split_properties_private($properties): array {
+        $processed_properties = [];
+
+        foreach ($properties as $key => $value) {
+            if(array_key_exists($key, self::$METADATUM_MAPPING)) {
+                $metadata_mapping = self::$METADATUM_MAPPING[$key];
+
+                if(self::is_array_associative($value)) {
+                    foreach ($value as $inner_key => $inner_value) {
+                        if(array_key_exists($inner_key, $metadata_mapping)) {
+                            $processed_key = $metadata_mapping[$inner_key]['private'] ? $key . self::$PRIVATE_SUFFIX : $key;
+                            self::append_nested_key($processed_properties, $processed_key, $inner_value, $inner_key);
+                        } else {
+                            self::append_nested_key($processed_properties, $key, $inner_value, $inner_key);
+                        }
+                    }
+                    continue;
+                }
+
+                $processed_key = $metadata_mapping['private'] ? $key . self::$PRIVATE_SUFFIX : $key;
+                $processed_properties[$processed_key] = $value;
+            } else {
+                $processed_properties[$key] = $value;
+            }
+        }
+
+        return $processed_properties;
+    }
+
+
+    private static function append_nested_key(array &$properties, string $key, $inner_value, $inner_key)
+    {
+        if(array_key_exists($key, $properties)) {
+            $properties[$key] += [$inner_key => $inner_value];
+        }
+        else {
+            $properties[$key] = [$inner_key => $inner_value];
+        }
+    }
+
+    private static function is_array_associative($array): bool {
+        return is_array($array) && self::has_string_keys($array);
+    }
+
+    private static function has_string_keys(array $array): bool {
+        return count(array_filter(array_keys($array), 'is_string')) > 0;
+    }
+
+    private function sanitize_header($header_name): string
     {
         return str_replace(",", "", $header_name);
     }
 
-    private function compound_header($header_name, array $properties, $display = false)
+    private function remove_private_prefix($header_name): string {
+        return str_replace(self::$PRIVATE_SUFFIX, "", $header_name);
+    }
+
+    private function compound_header($header_name, array $properties, $display = false): string
     {
         $sanitized_header = $this->sanitize_header($header_name);
         $compound = "$sanitized_header|compound(";
         $size = count($properties);
         $count = 0;
+
+        $metadata_header_name = $display ? $header_name : $this->remove_private_prefix($header_name);
+
+        $header_mapping = array_key_exists($metadata_header_name, self::$METADATUM_MAPPING) ? self::$METADATUM_MAPPING[$metadata_header_name] : null;
+
         foreach ($properties as $key => $value) {
             $sanitized_key = $this->sanitize_header($key);
-            $compound .= "$sanitized_key|text";
+            $data_type = $header_mapping != null && array_key_exists($key, $header_mapping)
+                ?  $header_mapping[$key]['type']
+                : "text";
+
+            $compound .= "$sanitized_key|$data_type";
             $count++;
 
             if ($count < $size) {
@@ -1144,5 +1257,7 @@ class Docx_Importer extends Importer
 
         return $properties;
     }
+
+
 
 }
