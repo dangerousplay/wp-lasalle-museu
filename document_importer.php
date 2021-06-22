@@ -39,10 +39,11 @@ class Docx_Importer extends Importer
         'DIMENSÕES',
         'FORMA DE AQUISIÇÃO',
         'ESTADO DE CONSERVAÇÃO',
-        'DADOS HISTÓRICOS'
+        'DADOS HISTÓRICOS',
+        'PARECER'
     ];
-    private static $ignore_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
 
+    private static $ignore_table_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
     private static $valid_table_headers = [
         'Comprimento',
         'Espessura',
@@ -51,6 +52,75 @@ class Docx_Importer extends Importer
         'Circunferência',
         'Profundidade',
         'Peso'
+    ];
+
+    private static $ignore_location_headers = ['Localização', 'Saída', 'Retornar', 'Responsável'];
+
+    private static $PRIVATE_SUFFIX = "- PRIVADO";
+
+    private static $METADATUM_MAPPING = [
+        'Registro de acervo' => [
+            'Nª do livro Tombo'                  => [ 'type' => 'text', 'private' => true ],
+            'Nª de Registro'                     => [ 'type' => 'text', 'private' => true ],
+            'Outros números'                     => [ 'type' => 'text', 'private' => true ],
+            'Localização no Museu'               => [ 'type' => 'text', 'private' => true ]
+        ],
+        'Dados técnicos' => [
+            'Data da confecção do material'      => [ 'type' => 'date', 'private' => false ],
+            'Autor/Autoridade'                   => [ 'type' => 'text', 'private' => true ],
+            'Descrição intrínseca'               => [ 'type' => 'text', 'private' => true ],
+            'Matéria Prima'                      => [ 'type' => 'text', 'private' => true ],
+            'Inscrição/ Marcas/ Títulos'         => [ 'type' => 'text', 'private' => true ],
+            'Técnica de manufatura'              => [ 'type' => 'text', 'private' => true ],
+            'Técnica decorativa'                 => [ 'type' => 'text', 'private' => true ],
+            'Representação/ Decoração'           => [ 'type' => 'text', 'private' => true ],
+            'Observações/Outras Características' => [ 'type' => 'textarea', 'private' => true ]
+        ],
+        'Procedência' => [
+            'Município'                          => [ 'type' => 'text', 'private' => true ],
+            'Sítio'                              => [ 'type' => 'text', 'private' => true ],
+            'Localidade'                         => [ 'type' => 'text', 'private' => true ],
+            'Estado'                             => [ 'type' => 'text', 'private' => true ],
+            'Região'                             => [ 'type' => 'text', 'private' => true ],
+            'Proprietário'                       => [ 'type' => 'text', 'private' => true ],
+        ],
+        'Dimensões' => [
+            'Comprimento menor'                  => [ 'type' => 'text', 'private' => false ],
+            'Comprimento maior'                  => [ 'type' => 'text', 'private' => false ],
+            'Espessura menor'                    => [ 'type' => 'text', 'private' => false ],
+            'Espessura maior'                    => [ 'type' => 'text', 'private' => false ],
+            'Diâmetro menor'                     => [ 'type' => 'text', 'private' => false ],
+            'Diâmetro maior'                     => [ 'type' => 'text', 'private' => false ],
+            'Altura menor'                       => [ 'type' => 'text', 'private' => false ],
+            'Altura maior'                       => [ 'type' => 'text', 'private' => false ],
+            'Circunferência menor'               => [ 'type' => 'text', 'private' => false ],
+            'Circunferência maior'               => [ 'type' => 'text', 'private' => false ],
+            'Profundidade menor'                 => [ 'type' => 'text', 'private' => false ],
+            'Profundidade maior'                 => [ 'type' => 'text', 'private' => false ],
+            'Peso menor'                         => [ 'type' => 'text', 'private' => false ],
+            'Peso maior'                         => [ 'type' => 'text', 'private' => false ],
+        ],
+        'Forma de aquisição' => [
+            'Data da Aquisição'                  => [ 'type' => 'date', 'private' => true ],
+            'Doador'                             => [ 'type' => 'text', 'private' => true ],
+            'Último Proprietário'                => [ 'type' => 'text', 'private' => true ],
+            'Personalidade/ Pessoa'              => [ 'type' => 'text', 'private' => true ],
+            'Outras Informações'                 => [ 'type' => 'textarea', 'private' => true ],
+        ],
+        'Estado de conservação' => [
+            'Descrição'                          => [ 'type' => 'textarea', 'private' => true ]
+        ],
+        'Dados históricos' => [
+            'Histórico'                          => [ 'type' => 'textarea', 'private' => false ]
+        ],
+        'Parecer' => [
+            'Localização'                        => [ 'type' => 'text', 'private' => true ],
+            'Saída'                              => [ 'type' => 'text', 'private' => true ],
+            'Retornar'                           => [ 'type' => 'text', 'private' => true ],
+            'Responsável'                        => [ 'type' => 'text', 'private' => true ],
+        ],
+        'Referências Bibliográficas/ Fontes'     => [ 'type' => 'text', 'private' => true ],
+        'Repetidos/ Duplos'                      => [ 'type' => 'text', 'private' => true ]
     ];
 
     private $items_repo;
@@ -964,36 +1034,120 @@ class Docx_Importer extends Importer
             $attachment = $properties["attachment"];
             unset($properties["attachment"]);
 
-            $properties["Título"] = $properties["Dados técnicos"]["Título"];
-
             $headers = [];
 
-            foreach ($properties as $key => $value) {
-                $headers += is_array($value) ? [$key => $this->compound_header($key, $value)] : [$key => "$key|text"];
+            $processed_properties = self::split_properties_private($properties);
+
+            $processed_properties["Título"] = $properties["Dados técnicos"]["Título"];
+
+            foreach ($processed_properties as $key => $value) {
+                $is_private = strpos($key, self::$PRIVATE_SUFFIX) !== false;
+                $mapping = array_key_exists($key, self::$METADATUM_MAPPING) ? self::$METADATUM_MAPPING[$key] : null;
+                $type = $mapping != null && array_key_exists('type', $mapping) ? $mapping['type'] : "text";
+
+                $headers += self::is_compound_value($value) ? [$key => $this->compound_header($key, $value, !$is_private)] : [$key => "$key|" . $type];
             }
 
-             $headers += ['special_document'];
-             $properties['special_document'] = "file:$attachment";
+            $headers += ['special_document'];
+            $processed_properties['special_document'] = "file:$attachment";
 
-            return $this->document_to_csv($properties, $headers, $this->tmp_file);
+            return $this->document_to_csv($processed_properties, $headers, $this->tmp_file);
         }
         return false;
     }
 
-    private function sanitize_header($header_name)
+    private static function split_properties_private($properties): array {
+        $processed_properties = [];
+
+        foreach ($properties as $key => $value) {
+            if(array_key_exists($key, self::$METADATUM_MAPPING)) {
+                $metadata_mapping = self::$METADATUM_MAPPING[$key];
+
+                if(self::is_array_associative($value)) {
+                    foreach ($value as $inner_key => $inner_value) {
+                        if(array_key_exists($inner_key, $metadata_mapping)) {
+                            $processed_key = $metadata_mapping[$inner_key]['private'] ? $key . self::$PRIVATE_SUFFIX : $key;
+                            self::append_nested_key($processed_properties, $processed_key, $inner_value, $inner_key);
+                        } else {
+                            self::append_nested_key($processed_properties, $key, $inner_value, $inner_key);
+                        }
+                    }
+                    continue;
+                }
+
+                $processed_key = $metadata_mapping['private'] ? $key . self::$PRIVATE_SUFFIX : $key;
+                $processed_properties[$processed_key] = $value;
+            } else {
+                $processed_properties[$key] = $value;
+            }
+        }
+
+        return $processed_properties;
+    }
+
+
+    private static function append_nested_key(array &$properties, string $key, $inner_value, $inner_key)
+    {
+        if(array_key_exists($key, $properties)) {
+            $properties[$key] += [$inner_key => $inner_value];
+        }
+        else {
+            $properties[$key] = [$inner_key => $inner_value];
+        }
+    }
+
+    private static function is_compound_value($value): bool {
+        return is_array($value) && (self::has_string_keys($value) || self::has_array_values($value));
+    }
+
+    private static function is_array_associative($array): bool {
+        return is_array($array) && self::has_string_keys($array);
+    }
+
+    private static function has_array_values(array $array): bool {
+        return count(array_filter($array, 'is_array')) > 0;
+    }
+
+    private static function has_string_keys(array $array): bool {
+        return count(array_filter(array_keys($array), 'is_string')) > 0;
+    }
+
+    private function sanitize_header($header_name): string
     {
         return str_replace(",", "", $header_name);
     }
 
-    private function compound_header($header_name, array $properties, $display = false)
+    private function remove_private_prefix($header_name): string {
+        return str_replace(self::$PRIVATE_SUFFIX, "", $header_name);
+    }
+
+    private function compound_header($header_name, array $properties, $display = false): string
     {
         $sanitized_header = $this->sanitize_header($header_name);
+        $is_multi_valued = self::has_array_values($properties);
+
+        if($is_multi_valued) {
+            $properties = array_reduce($properties, function ($a,$b) {
+                return $a + $b;
+            }, []);
+        }
+
+
         $compound = "$sanitized_header|compound(";
         $size = count($properties);
         $count = 0;
+
+        $metadata_header_name = $display ? $header_name : $this->remove_private_prefix($header_name);
+
+        $header_mapping = array_key_exists($metadata_header_name, self::$METADATUM_MAPPING) ? self::$METADATUM_MAPPING[$metadata_header_name] : null;
+
         foreach ($properties as $key => $value) {
             $sanitized_key = $this->sanitize_header($key);
-            $compound .= "$sanitized_key|text";
+            $data_type = $header_mapping != null && array_key_exists($key, $header_mapping)
+                ?  $header_mapping[$key]['type']
+                : "text";
+
+            $compound .= "$sanitized_key|$data_type";
             $count++;
 
             if ($count < $size) {
@@ -1001,6 +1155,7 @@ class Docx_Importer extends Importer
             }
         }
         $compound .= ")";
+        $compound .= $is_multi_valued ? '|multiple' : '';
         $compound .= $display ? '|display_yes' : '|display_no';
 
         return $compound;
@@ -1008,6 +1163,7 @@ class Docx_Importer extends Importer
 
     function document_to_csv(array $properties, $headers, $filename = "php://temp", $separator = ",", $max_properties = 20)
     {
+        $multi_delimiter = $this->get_option('multivalued_delimiter');
         $fp = fopen($filename, 'w');
 
         if (!$fp) {
@@ -1024,8 +1180,20 @@ class Docx_Importer extends Importer
                 break;
             }
 
-            $is_compound = !is_string($value);
-            $data[] = $is_compound ? str_putcsv($value, $separator) : $value;
+            $is_compound = self::is_compound_value($value);
+            if($is_compound) {
+                $data[] = self::has_array_values($value)
+                    ? implode($multi_delimiter,
+                        array_map(
+                            function ($a) use ($separator) {
+                                return str_putcsv($a, $separator);
+                            }, $value
+                        )
+                    )
+                    : str_putcsv($value, $separator);
+            } else {
+                $data[] = $value;
+            }
         }
 
         fputcsv($fp, $data, $separator);
@@ -1081,7 +1249,11 @@ class Docx_Importer extends Importer
 
         $properties = array();
         $is_parsing_table = false;
+        $is_parsing_locations = false;
+
         $lines_to_skip = 0;
+        $location_header_line = 0;
+
         $current_section_header = 'REGISTRO DE ACERVO';
         foreach ($exploded_text as $line) {
             $exploded_line = explode(":", $line);
@@ -1096,9 +1268,13 @@ class Docx_Importer extends Importer
                 $current_section_header = ucfirst(mb_strtolower($trimmed_header));
             }
 
-            if (!$is_parsing_table) {
+            if (!$is_parsing_table && !$is_parsing_locations) {
                 if (count($exploded_line) >= 2) {
-                    $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    if (isset($current_section_header)) {
+                        $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    } else {
+                        $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    }
                     continue;
                 }
 
@@ -1106,19 +1282,27 @@ class Docx_Importer extends Importer
                     $is_parsing_table = true;
                     continue;
                 }
-            } else {
+        
+                if ($trimmed_header == 'PARECER') {
+                    $is_parsing_locations = true;
+                    $properties[$current_section_header] = array();
+                    continue;
+                }
+            }
+            
+            if ($is_parsing_table) {
                 if ($trimmed_header == 'FORMA DE AQUISIÇÃO') {
                     $is_parsing_table = false;
                     continue;
                 }
 
-                if (in_array($trimmed_header, self::$ignore_headers)) {
+                if (in_array($trimmed_header, self::$ignore_table_headers)) {
                     continue;
                 }
 
                 if (in_array($trimmed_header, self::$valid_table_headers)) {
                     $current_table_header = $trimmed_header;
-                    $lines_to_skip = 2;
+                    $lines_to_skip = 3;
                     continue;
                 }
 
@@ -1126,15 +1310,45 @@ class Docx_Importer extends Importer
                     continue;
                 }
 
-                if (!isset($properties[$current_section_header][$current_table_header]['menor'])) {
-                    $properties[$current_section_header][$current_table_header]['menor'] = trim($line);
+                if (!isset($properties[$current_section_header][$current_table_header . ' menor'])) {
+                    $properties[$current_section_header][$current_table_header . ' menor'] = trim($line);
+                    $lines_to_skip = 1;
                     continue;
                 }
-
-                if (!isset($properties[$current_section_header][$current_table_header]['maior'])) {
-                    $properties[$current_section_header][$current_table_header]['maior'] = trim($line);
+        
+                if (!isset($properties[$current_section_header][$current_table_header . ' maior'])) {
+                    $properties[$current_section_header][$current_table_header .' maior'] = trim($line);
                     continue;
                 }
+            }
+        
+            if ($is_parsing_locations) {
+                if ($trimmed_header == 'Referências Bibliográficas/ Fontes') {
+                    unset($current_section_header);
+                    $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    $is_parsing_locations = false;
+                    continue;
+                }
+        
+                if (in_array($trimmed_header, self::$ignore_location_headers) || ($location_header_line == 0 && $trimmed_header == '')) {
+                    continue;
+                }
+        
+                if ($location_header_line == 0) {
+                    array_push($properties[$current_section_header], array(
+                        self::$ignore_location_headers[$location_header_line] => $trimmed_header
+                    ));
+                } else {
+                    $properties[$current_section_header][count($properties[$current_section_header]) - 1][self::$ignore_location_headers[$location_header_line]] = $trimmed_header;
+                }
+                $lines_to_skip = 1;
+        
+                if ($location_header_line == 3) {
+                    $location_header_line = 0;
+                    continue;
+                }
+        
+                $location_header_line++;
             }
         }
 
@@ -1144,5 +1358,7 @@ class Docx_Importer extends Importer
 
         return $properties;
     }
+
+
 
 }

@@ -1,4 +1,5 @@
 <?php
+
 $valid_section_headers = [
     'REGISTRO DE ACERVO',
     'DADOS TÉCNICOS',
@@ -6,9 +7,11 @@ $valid_section_headers = [
     'DIMENSÕES',
     'FORMA DE AQUISIÇÃO',
     'ESTADO DE CONSERVAÇÃO',
-    'DADOS HISTÓRICOS'
+    'DADOS HISTÓRICOS',
+    'PARECER'
 ];
-$ignore_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
+
+$ignore_table_headers = ['Cm', 'Menor', 'Maior', 'Fotografia'];
 $valid_table_headers = [
     'Comprimento',
     'Espessura',
@@ -19,33 +22,56 @@ $valid_table_headers = [
     'Peso'
 ];
 
+$ignore_location_headers = ['Localização', 'Saída', 'Retornar', 'Responsável'];
+
 function read_docx($filename) {
-    $striped_content = '';
+    $current_image = '';
+    $current_image_name = '';
+    $current_image_size = 0;
     $content = '';
-    //print($filename);
-    $zip = zip_open($filename);
-    if (!$zip || is_numeric($zip)) return false;
-    while ($zip_entry = zip_read($zip)) {
-        if (zip_entry_open($zip, $zip_entry) == FALSE) continue;
-        if (zip_entry_name($zip_entry) != "word/document.xml") continue;
-        $content .= zip_entry_read($zip_entry, zip_entry_filesize($zip_entry));
-        zip_entry_close($zip_entry);
+    $zip = new ZipArchive;
+    if (true === $zip->open($filename)) {
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $zip_element = $zip->statIndex($i);
+            $name = $zip_element['name'];
+            $size = $zip_element['size'];
+
+            if(preg_match("([^\s]+(\.(?i)(jpg|jpeg|png|gif|bmp))$)", $name) && $size > $current_image_size) {
+                $current_image = $zip->getFromIndex($i);
+                $current_image_name = $name;
+                $current_image_size = $zip_element['size'];
+                continue;
+            }
+            if ($name != "word/document.xml") {
+                continue;
+            }
+            $content .= $zip->getFromIndex($i);
+        }
+        $zip->close();
     }
-    zip_close($zip);
     $content = str_replace('</w:r></w:p></w:tc><w:tc>', "\n", $content);
     $content = str_replace('</w:r></w:p>', "\n", $content);
     $content = str_replace('</w:rPr></w:pPr>', "\n", $content);
-    $striped_content = strip_tags($content);
-    //print($striped_content);
-    return $striped_content;
+
+    return array(
+        "text" => strip_tags($content),
+        "image" => [
+            'data' => $current_image,
+            'name' => $current_image_name
+        ]
+    );
 }
 
-$text = read_docx("BUSTO.docx");
-$exploded_text = explode("\n", $text);
+$document_data = read_docx("test.docx");
+$exploded_text = explode("\n", $document_data['text']);
 
 $properties = array();
 $is_parsing_table = false;
+$is_parsing_locations = false;
+
 $lines_to_skip = 0;
+$location_header_line = 0;
+
 $current_section_header = 'REGISTRO DE ACERVO';
 foreach ($exploded_text as $line) {
     $exploded_line = explode(":", $line);
@@ -60,9 +86,13 @@ foreach ($exploded_text as $line) {
         $current_section_header = ucfirst(mb_strtolower($trimmed_header));
     }
 
-    if (!$is_parsing_table) {
+    if (!$is_parsing_table && !$is_parsing_locations) {
         if (count($exploded_line) >= 2) {
-            $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+            if (isset($current_section_header)) {
+                $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+            } else {
+                $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+            }
             continue;
         }
 
@@ -70,24 +100,27 @@ foreach ($exploded_text as $line) {
             $is_parsing_table = true;
             continue;
         }
-    } else {
+
+        if ($trimmed_header == 'PARECER') {
+            $is_parsing_locations = true;
+            $properties[$current_section_header] = array();
+            continue;
+        }
+    }
+    
+    if ($is_parsing_table) {
         if ($trimmed_header == 'FORMA DE AQUISIÇÃO') {
             $is_parsing_table = false;
             continue;
         }
 
-        if (in_array($trimmed_header, $ignore_headers)) {
-            continue;
-        }
-
-        if ($trimmed_header == 'FORMA DE AQUISIÇÃO') {
-            $is_parsing_table = true;
+        if (in_array($trimmed_header, $ignore_table_headers)) {
             continue;
         }
 
         if (in_array($trimmed_header, $valid_table_headers)) {
             $current_table_header = $trimmed_header;
-            $lines_to_skip = 2;
+            $lines_to_skip = 3;
             continue;
         }
 
@@ -95,57 +128,47 @@ foreach ($exploded_text as $line) {
             continue;
         }
 
-        if (!isset($properties[$current_section_header][$current_table_header]['menor'])) {
-            $properties[$current_section_header][$current_table_header]['menor'] = trim($line);
+        if (!isset($properties[$current_section_header][$current_table_header . ' menor'])) {
+            $properties[$current_section_header][$current_table_header . ' menor'] = trim($line);
+            $lines_to_skip = 1;
             continue;
         }
 
-        if (!isset($properties[$current_section_header][$current_table_header]['maior'])) {
-            $properties[$current_section_header][$current_table_header]['maior'] = trim($line);
+        if (!isset($properties[$current_section_header][$current_table_header . ' maior'])) {
+            $properties[$current_section_header][$current_table_header .' maior'] = trim($line);
             continue;
         }
+    }
+
+    if ($is_parsing_locations) {
+        if ($trimmed_header == 'Referências Bibliográficas/ Fontes') {
+            unset($current_section_header);
+            $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+            $is_parsing_locations = false;
+            continue;
+        }
+
+        if (in_array($trimmed_header, $ignore_location_headers) || ($location_header_line == 0 && $trimmed_header == '')) {
+            continue;
+        }
+
+        if ($location_header_line == 0) {
+            array_push($properties[$current_section_header], array(
+                $ignore_location_headers[$location_header_line] => $trimmed_header
+            ));
+        } else {
+            $properties[$current_section_header][count($properties[$current_section_header]) - 1][$ignore_location_headers[$location_header_line]] = $trimmed_header;
+        }
+        $lines_to_skip = 1;
+
+        if ($location_header_line == 3) {
+            $location_header_line = 0;
+            continue;
+        }
+
+        $location_header_line++;
     }
 }
 
 header('Content-Type: application/json');
-//echo json_encode($properties, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-//$list = ----your array
-
-$csv = "file.csv";
-//$file = json_encode($properties);
-$file = $properties;
-print(gettype($file));
-//$file = [    "foo" => "bar",    "bar" => "foo",];
-//echo($file);
-//echo json_encode($file, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-//echo($properties);
-
-jsonToCSV($file, $csv);
-
-function jsonToCSV($jfilename, $cfilename)
-{
-    $data = ["Registro de acervo", "Dados técnicos", "Procedência", "Dimensões", "Forma de aquisição", "Estado de conservação", "Dados históricos"];
-    $fp = fopen("file.csv", 'w');
-    fputcsv($fp, $data);
-    foreach ($jfilename as $fields)
-    {
-      print($jfilename);
-      fputcsv($fp, $fields);
-      foreach ($fields as $key) {
-        fputcsv($fp, $key);
-      }
-
-    }
-    fclose($fp);
-}
-
-//$object = json_decode($properties);
-
-//$list = get_field($object, $field, $default);
-//$fp = fopen('file.csv', 'w');
-
-//foreach ($list as $fields) {
-//    fputcsv($fp,get_object_vars($fields));
-//}
-
-//fclose($fp);
+echo json_encode($properties, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
