@@ -115,8 +115,8 @@ class Docx_Importer extends Importer
         ],
         'Parecer' => [
             'Localização'                        => [ 'type' => 'text', 'private' => true ],
-            'Saída'                              => [ 'type' => 'date', 'private' => true ],
-            'Retornar'                           => [ 'type' => 'date', 'private' => true ],
+            'Saída'                              => [ 'type' => 'text', 'private' => true ],
+            'Retornar'                           => [ 'type' => 'text', 'private' => true ],
             'Responsável'                        => [ 'type' => 'text', 'private' => true ],
         ],
         'Referências Bibliográficas/ Fontes'     => [ 'type' => 'text', 'private' => true ],
