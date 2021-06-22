@@ -1031,7 +1031,7 @@ class Docx_Importer extends Importer
                 $mapping = array_key_exists($key, self::$METADATUM_MAPPING) ? self::$METADATUM_MAPPING[$key] : null;
                 $type = $mapping != null && array_key_exists('type', $mapping) ? $mapping['type'] : "text";
 
-                $headers += self::is_array_associative($value) ? [$key => $this->compound_header($key, $value, !$is_private)] : [$key => "$key|" . $type];
+                $headers += self::is_compound_value($value) ? [$key => $this->compound_header($key, $value, !$is_private)] : [$key => "$key|" . $type];
             }
 
             $headers += ['special_document'];
@@ -1082,8 +1082,16 @@ class Docx_Importer extends Importer
         }
     }
 
+    private static function is_compound_value($value): bool {
+        return is_array($value) && (self::has_string_keys($value) || self::has_array_values($value));
+    }
+
     private static function is_array_associative($array): bool {
         return is_array($array) && self::has_string_keys($array);
+    }
+
+    private static function has_array_values(array $array): bool {
+        return count(array_filter($array, 'is_array')) > 0;
     }
 
     private static function has_string_keys(array $array): bool {
@@ -1102,6 +1110,15 @@ class Docx_Importer extends Importer
     private function compound_header($header_name, array $properties, $display = false): string
     {
         $sanitized_header = $this->sanitize_header($header_name);
+        $is_multi_valued = self::has_array_values($properties);
+
+        if($is_multi_valued) {
+            $properties = array_reduce($properties, function ($a,$b) {
+                return $a + $b;
+            }, []);
+        }
+
+
         $compound = "$sanitized_header|compound(";
         $size = count($properties);
         $count = 0;
@@ -1124,6 +1141,7 @@ class Docx_Importer extends Importer
             }
         }
         $compound .= ")";
+        $compound .= $is_multi_valued ? '|multiple' : '';
         $compound .= $display ? '|display_yes' : '|display_no';
 
         return $compound;
@@ -1131,6 +1149,7 @@ class Docx_Importer extends Importer
 
     function document_to_csv(array $properties, $headers, $filename = "php://temp", $separator = ",", $max_properties = 20)
     {
+        $multi_delimiter = $this->get_option('multivalued_delimiter');
         $fp = fopen($filename, 'w');
 
         if (!$fp) {
@@ -1147,8 +1166,20 @@ class Docx_Importer extends Importer
                 break;
             }
 
-            $is_compound = !is_string($value);
-            $data[] = $is_compound ? str_putcsv($value, $separator) : $value;
+            $is_compound = self::is_compound_value($value);
+            if($is_compound) {
+                $data[] = self::has_array_values($value)
+                    ? implode($multi_delimiter,
+                        array_map(
+                            function ($a) use ($separator) {
+                                return str_putcsv($a, $separator);
+                            }, $value
+                        )
+                    )
+                    : str_putcsv($value, $separator);
+            } else {
+                $data[] = $value;
+            }
         }
 
         fputcsv($fp, $data, $separator);
