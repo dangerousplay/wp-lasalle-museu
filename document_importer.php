@@ -59,13 +59,13 @@ class Docx_Importer extends Importer
     private static $PRIVATE_SUFFIX = "- PRIVADO";
 
     private static $METADATUM_MAPPING = [
-        'Registro de acervo'    => [
+        'Registro de acervo' => [
             'Nª do livro Tombo'                  => [ 'type' => 'text', 'private' => true ],
             'Nª de Registro'                     => [ 'type' => 'text', 'private' => true ],
             'Outros números'                     => [ 'type' => 'text', 'private' => true ],
             'Localização no Museu'               => [ 'type' => 'text', 'private' => true ]
         ],
-        'Dados técnicos'                         => [
+        'Dados técnicos' => [
             'Data da confecção do material'      => [ 'type' => 'date', 'private' => false ],
             'Autor/Autoridade'                   => [ 'type' => 'text', 'private' => true ],
             'Descrição intrínseca'               => [ 'type' => 'text', 'private' => true ],
@@ -83,6 +83,22 @@ class Docx_Importer extends Importer
             'Estado'                             => [ 'type' => 'text', 'private' => true ],
             'Região'                             => [ 'type' => 'text', 'private' => true ],
             'Proprietário'                       => [ 'type' => 'text', 'private' => true ],
+        ],
+        'Dimensões' => [
+            'Comprimento menor'                  => [ 'type' => 'text', 'private' => false ],
+            'Comprimento maior'                  => [ 'type' => 'text', 'private' => false ],
+            'Espessura menor'                    => [ 'type' => 'text', 'private' => false ],
+            'Espessura maior'                    => [ 'type' => 'text', 'private' => false ],
+            'Diâmetro menor'                     => [ 'type' => 'text', 'private' => false ],
+            'Diâmetro maior'                     => [ 'type' => 'text', 'private' => false ],
+            'Altura menor'                       => [ 'type' => 'text', 'private' => false ],
+            'Altura maior'                       => [ 'type' => 'text', 'private' => false ],
+            'Circunferência menor'               => [ 'type' => 'text', 'private' => false ],
+            'Circunferência maior'               => [ 'type' => 'text', 'private' => false ],
+            'Profundidade menor'                 => [ 'type' => 'text', 'private' => false ],
+            'Profundidade maior'                 => [ 'type' => 'text', 'private' => false ],
+            'Peso menor'                         => [ 'type' => 'text', 'private' => false ],
+            'Peso maior'                         => [ 'type' => 'text', 'private' => false ],
         ],
         'Forma de aquisição' => [
             'Data da Aquisição'                  => [ 'type' => 'date', 'private' => true ],
@@ -103,10 +119,8 @@ class Docx_Importer extends Importer
             'Retornar'                           => [ 'type' => 'date', 'private' => true ],
             'Responsável'                        => [ 'type' => 'text', 'private' => true ],
         ],
-        'Outros' => [
-            'Referências Bibliográficas/ Fontes' => [ 'type' => 'text', 'private' => true ],
-            'Repetidos/ Duplos'                  => [ 'type' => 'text', 'private' => true ]
-        ]
+        'Referências Bibliográficas/ Fontes'     => [ 'type' => 'text', 'private' => true ],
+        'Repetidos/ Duplos'                      => [ 'type' => 'text', 'private' => true ]
     ];
 
     private $items_repo;
@@ -1256,7 +1270,11 @@ class Docx_Importer extends Importer
 
             if (!$is_parsing_table && !$is_parsing_locations) {
                 if (count($exploded_line) >= 2) {
-                    $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    if (isset($current_section_header)) {
+                        $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    } else {
+                        $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    }
                     continue;
                 }
 
@@ -1292,22 +1310,22 @@ class Docx_Importer extends Importer
                     continue;
                 }
 
-                if (!isset($properties[$current_section_header][$current_table_header]['menor'])) {
-                    $properties[$current_section_header][$current_table_header]['menor'] = trim($line);
+                if (!isset($properties[$current_section_header][$current_table_header . ' menor'])) {
+                    $properties[$current_section_header][$current_table_header . ' menor'] = trim($line);
                     $lines_to_skip = 1;
                     continue;
                 }
         
-                if (!isset($properties[$current_section_header][$current_table_header]['maior'])) {
-                    $properties[$current_section_header][$current_table_header]['maior'] = trim($line);
+                if (!isset($properties[$current_section_header][$current_table_header . ' maior'])) {
+                    $properties[$current_section_header][$current_table_header .' maior'] = trim($line);
                     continue;
                 }
             }
         
             if ($is_parsing_locations) {
                 if ($trimmed_header == 'Referências Bibliográficas/ Fontes') {
-                    $current_section_header = 'Outros';
-                    $properties[$current_section_header][$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
+                    unset($current_section_header);
+                    $properties[$trimmed_header] = trim(implode("", array_slice($exploded_line, 1)));
                     $is_parsing_locations = false;
                     continue;
                 }
