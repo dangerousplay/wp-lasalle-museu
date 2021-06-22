@@ -62,7 +62,7 @@ class Docx_Importer extends Importer
         'Registro de acervo'    => [
             'Nª do livro Tombo'                  => [ 'type' => 'text', 'private' => true ],
             'Nª de Registro'                     => [ 'type' => 'text', 'private' => true ],
-            'Outros Números'                     => [ 'type' => 'text', 'private' => true ],
+            'Outros números'                     => [ 'type' => 'text', 'private' => true ],
             'Localização no Museu'               => [ 'type' => 'text', 'private' => true ]
         ],
         'Dados técnicos'                         => [
